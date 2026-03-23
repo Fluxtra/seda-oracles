@@ -1,7 +1,6 @@
 use anyhow::Result;
 use seda_sdk_rs::{elog, log, Process};
 
-#[allow(unreachable_code)]
 pub fn execution_phase() -> Result<()> {
     let mut prices: Vec<f64> = Vec::new();
 
@@ -32,19 +31,18 @@ pub fn execution_phase() -> Result<()> {
     if prices.len() < 2 {
         elog!("Only {} MANTRA/USD sources, need at least 2", prices.len());
         Process::error(b"Less than 2 sources");
-        return Ok(());
     }
 
-    let median = match common::math::median(&prices) {
-        Some(m) => m,
+    // Safe to unwrap: prices.len() >= 2 guarantees non-empty slice
+    let median = common::math::median(&prices).unwrap();
+    let scaled = match common::parse::scale_price(median) {
+        Some(s) => s,
         None => {
-            Process::error(b"No valid prices");
-            return Ok(());
+            elog!("Failed to scale MANTRA/USD median: {}", median);
+            Process::error(b"Invalid median price");
         }
     };
-    let scaled = common::parse::scale_price(median);
     log!("MANTRA/USD median: {}, scaled: {}", median, scaled);
 
     Process::success(&scaled.to_le_bytes());
-    return Ok(());
 }

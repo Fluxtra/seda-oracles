@@ -14,10 +14,10 @@ pub fn median(values: &[f64]) -> Option<f64> {
     }
 }
 
-/// Compute the median of a vector of u128 values.
-/// Returns `None` if the vector is empty.
-/// Uses overflow-safe averaging for even-length vectors.
-pub fn median_u128(values: &mut Vec<u128>) -> Option<u128> {
+/// Compute the median of a slice of u128 values (sorts in-place).
+/// Returns `None` if the slice is empty.
+/// Uses overflow-safe averaging for even-length slices.
+pub fn median_u128(values: &mut [u128]) -> Option<u128> {
     if values.is_empty() {
         return None;
     }

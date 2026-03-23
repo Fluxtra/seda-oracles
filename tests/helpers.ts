@@ -17,7 +17,9 @@ export function decodeBE(bytes: Uint8Array): BigNumber {
 
 /** Decode little-endian u128 from Uint8Array to BigNumber */
 export function decodeLE(bytes: Uint8Array): BigNumber {
-  const hex = Buffer.from(bytes.toReversed()).toString("hex");
+  const reversed = Buffer.from(bytes);
+  reversed.reverse();
+  const hex = reversed.toString("hex");
   return BigNumber(`0x${hex}`);
 }
 

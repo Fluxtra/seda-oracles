@@ -62,13 +62,18 @@ abstract contract SedaPriceFeedBase is Ownable {
             abi.encodePacked(block.number)
         );
 
+        // State updates after external call to avoid locking on revert.
+        // postRequest is a trusted call to the immutable sedaCore contract.
+        bytes32 requestId = sedaCore.postRequest{value: msg.value}(inputs);
         resultFetched = false;
-        latestRequestId = sedaCore.postRequest{value: msg.value}(inputs);
-        emit RequestTransmitted(latestRequestId);
-        return latestRequestId;
+        latestRequestId = requestId;
+        emit RequestTransmitted(requestId);
+        return requestId;
     }
 
     /// @notice Fetch the latest result from SEDA Core and update stored price.
+    /// @dev Intentionally permissionless — anyone can relay results from SEDA Core.
+    ///      The result integrity is guaranteed by SEDA's consensus mechanism.
     function fetchResult() external {
         if (latestRequestId == bytes32(0)) revert RequestNotTransmitted();
 
@@ -94,6 +99,9 @@ abstract contract SedaPriceFeedBase is Ownable {
     }
 
     /// @notice Get the latest price with staleness check.
+    /// @dev Uses Solidity 0.8 checked arithmetic — reverts on underflow if
+    ///      latestTimestamp somehow exceeds block.timestamp (should not happen
+    ///      in normal operation since SEDA timestamps track real time).
     function latestAnswerSafe() external view returns (uint128) {
         if (latestTimestamp == 0) revert NotInitialized();
         if (
@@ -114,6 +122,8 @@ abstract contract SedaPriceFeedBase is Ownable {
     }
 
     /// @notice Update the staleness threshold (owner only).
+    /// @dev Set to 0 to disable staleness checking. No upper bound is enforced;
+    ///      the owner is trusted to set a reasonable value.
     function setStalenessThreshold(uint256 _newThreshold) external onlyOwner {
         uint256 old = stalenessThreshold;
         stalenessThreshold = _newThreshold;
