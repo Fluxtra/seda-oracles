@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/common",
+    "crates/hype-usd",
+    "crates/mantra-usd",
+    "crates/hype-mantra",
+]
+resolver = "2"
+
+[profile.release-wasm]
+inherits = "release"
+lto = "fat"
+opt-level = "z"

@@ -1,0 +1,18 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+.env
+
+# Hardhat
+integrations/evm/cache/
+integrations/evm/artifacts/
+integrations/evm/typechain-types/
+
+# OS
+.DS_Store
+*.swp
+*.swo

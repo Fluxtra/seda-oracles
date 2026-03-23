@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import {ISedaCore} from "@seda-protocol/evm/contracts/interfaces/ISedaCore.sol";
+import {SedaDataTypes} from "@seda-protocol/evm/contracts/libraries/SedaDataTypes.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+
+abstract contract SedaPriceFeedBase is Ownable {
+    ISedaCore public immutable sedaCore;
+    bytes32 public oracleProgramId;
+    bytes32 public latestRequestId;
+    uint128 public latestPrice;
+    uint64 public latestTimestamp;
+    uint256 public stalenessThreshold;
+
+    event RequestTransmitted(bytes32 indexed requestId);
+    event ResultFetched(bytes32 indexed requestId, uint128 price, uint64 timestamp);
+    event OracleProgramIdUpdated(bytes32 oldId, bytes32 newId);
+    event StalenessThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
+
+    error RequestNotTransmitted();
+    error ResultNotReady();
+    error NoConsensus();
+    error ExecutionFailed(uint8 exitCode);
+    error StalePrice(uint64 resultTimestamp, uint256 threshold);
+
+    constructor(
+        address _sedaCore,
+        bytes32 _oracleProgramId,
+        uint256 _stalenessThreshold
+    ) Ownable(msg.sender) {
+        sedaCore = ISedaCore(_sedaCore);
+        oracleProgramId = _oracleProgramId;
+        stalenessThreshold = _stalenessThreshold;
+    }
+
+    /// @notice Post a new data request to SEDA Core.
+    function transmit() external payable returns (bytes32) {
+        SedaDataTypes.RequestInputs memory inputs = SedaDataTypes.RequestInputs(
+            oracleProgramId,
+            oracleProgramId,
+            1,                    // gasPrice
+            300000000000,         // execGasLimit
+            100000000000,         // tallyGasLimit
+            3,                    // replicationFactor
+            _execInputs(),        // execInputs
+            hex"00",              // tallyInputs
+            hex"00",              // consensusFilter = None
+            abi.encodePacked(block.number)
+        );
+
+        latestRequestId = sedaCore.postRequest{value: msg.value}(inputs);
+        emit RequestTransmitted(latestRequestId);
+        return latestRequestId;
+    }
+
+    /// @notice Fetch the latest result from SEDA Core and update stored price.
+    function fetchResult() external {
+        if (latestRequestId == bytes32(0)) revert RequestNotTransmitted();
+
+        SedaDataTypes.Result memory result = sedaCore.getResult(latestRequestId);
+
+        if (result.blockTimestamp == 0) revert ResultNotReady();
+        if (!result.consensus) revert NoConsensus();
+        if (result.exitCode != 0) revert ExecutionFailed(result.exitCode);
+
+        // Decode big-endian u128 from tally result
+        latestPrice = uint128(bytes16(result.result));
+        latestTimestamp = result.blockTimestamp;
+
+        emit ResultFetched(latestRequestId, latestPrice, latestTimestamp);
+    }
+
+    /// @notice Get the latest price (no staleness check).
+    function latestAnswer() external view returns (uint128) {
+        return latestPrice;
+    }
+
+    /// @notice Get the latest price with staleness check.
+    function latestAnswerSafe() external view returns (uint128) {
+        if (
+            stalenessThreshold > 0 &&
+            block.timestamp - latestTimestamp > stalenessThreshold
+        ) {
+            revert StalePrice(latestTimestamp, stalenessThreshold);
+        }
+        return latestPrice;
+    }
+
+    /// @notice Update the oracle program ID (owner only).
+    function setOracleProgramId(bytes32 _newId) external onlyOwner {
+        bytes32 oldId = oracleProgramId;
+        oracleProgramId = _newId;
+        emit OracleProgramIdUpdated(oldId, _newId);
+    }
+
+    /// @notice Update the staleness threshold (owner only).
+    function setStalenessThreshold(uint256 _newThreshold) external onlyOwner {
+        uint256 old = stalenessThreshold;
+        stalenessThreshold = _newThreshold;
+        emit StalenessThresholdUpdated(old, _newThreshold);
+    }
+
+    /// @notice Returns the exec inputs bytes for the data request.
+    function _execInputs() internal pure virtual returns (bytes memory);
+
+    /// @notice Returns a human-readable description of this price feed.
+    function description() external pure virtual returns (string memory);
+
+    /// @notice Returns the number of decimals (18).
+    function decimals() external pure returns (uint8) {
+        return 18;
+    }
+}
