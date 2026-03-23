@@ -16,6 +16,7 @@ abstract contract SedaPriceFeedBase is Ownable {
 
     event RequestTransmitted(bytes32 indexed requestId);
     event ResultFetched(bytes32 indexed requestId, uint128 price, uint64 timestamp);
+    event RequestCancelled(bytes32 indexed requestId);
     event OracleProgramIdUpdated(bytes32 oldId, bytes32 newId);
     event StalenessThresholdUpdated(uint256 oldThreshold, uint256 newThreshold);
 
@@ -111,6 +112,17 @@ abstract contract SedaPriceFeedBase is Ownable {
             revert StalePrice(latestTimestamp, stalenessThreshold);
         }
         return latestPrice;
+    }
+
+    /// @notice Cancel a pending request that will never resolve (owner escape hatch).
+    /// @dev Clears the pending state so transmit() can be called again. Does not
+    ///      affect latestPrice/latestTimestamp (previous valid result is preserved).
+    function cancelPendingRequest() external onlyOwner {
+        if (latestRequestId == bytes32(0) || resultFetched) {
+            revert RequestNotTransmitted();
+        }
+        emit RequestCancelled(latestRequestId);
+        resultFetched = true;
     }
 
     /// @notice Update the oracle program ID (owner only).

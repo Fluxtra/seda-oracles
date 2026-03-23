@@ -159,6 +159,40 @@ function describeBaseTests(contractName: string, expectedDescription: string) {
       });
     });
 
+    describe("cancelPendingRequest", function () {
+      it("allows transmit after cancellation", async function () {
+        await feed.transmit();
+        await expect(feed.transmit()).to.be.revertedWithCustomError(feed, "RequestPending");
+        await expect(feed.cancelPendingRequest())
+          .to.emit(feed, "RequestCancelled");
+        // Should succeed now
+        await feed.transmit();
+      });
+
+      it("reverts when no request is pending", async function () {
+        await expect(feed.cancelPendingRequest()).to.be.revertedWithCustomError(
+          feed, "RequestNotTransmitted"
+        );
+      });
+
+      it("reverts when result already fetched", async function () {
+        await feed.transmit();
+        const requestId = await feed.latestRequestId();
+        await mockCore.setResult(requestId, makeResult(requestId));
+        await feed.fetchResult();
+        await expect(feed.cancelPendingRequest()).to.be.revertedWithCustomError(
+          feed, "RequestNotTransmitted"
+        );
+      });
+
+      it("reverts when called by non-owner", async function () {
+        await feed.transmit();
+        await expect(
+          feed.connect(other).cancelPendingRequest()
+        ).to.be.revertedWithCustomError(feed, "OwnableUnauthorizedAccount");
+      });
+    });
+
     describe("admin", function () {
       it("owner can update oracle program ID", async function () {
         const newId = ethers.encodeBytes32String("new-program");
