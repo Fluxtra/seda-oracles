@@ -1,153 +1,225 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 
-describe("Price Feed Contracts", function () {
+const PROGRAM_ID = ethers.encodeBytes32String("test-program");
+const STALENESS = 3600;
+
+function makeResult(requestId: string, overrides: Record<string, any> = {}) {
+  return {
+    drId: requestId,
+    gasUsed: 0,
+    blockHeight: 1,
+    blockTimestamp: Math.floor(Date.now() / 1000),
+    consensus: true,
+    exitCode: 0,
+    version: "0.0.1",
+    result: "0x" + (25500000000000000000n).toString(16).padStart(32, "0"),
+    paybackAddress: "0x",
+    sedaPayload: "0x",
+    ...overrides,
+  };
+}
+
+describe("HypeUsdPriceFeed", function () {
   let mockCore: any;
-  let hypeUsd: any;
+  let feed: any;
   let owner: any;
   let other: any;
 
-  const PROGRAM_ID = ethers.encodeBytes32String("test-program");
-  const STALENESS = 3600;
-
   beforeEach(async function () {
     [owner, other] = await ethers.getSigners();
-
     const MockCore = await ethers.getContractFactory("MockSedaCore");
     mockCore = await MockCore.deploy();
-
-    const HypeUsd = await ethers.getContractFactory("HypeUsdPriceFeed");
-    hypeUsd = await HypeUsd.deploy(
-      await mockCore.getAddress(),
-      PROGRAM_ID,
-      STALENESS
-    );
+    const Factory = await ethers.getContractFactory("HypeUsdPriceFeed");
+    feed = await Factory.deploy(await mockCore.getAddress(), PROGRAM_ID, STALENESS);
   });
 
   describe("deployment", function () {
     it("sets correct description", async function () {
-      expect(await hypeUsd.description()).to.equal("HYPE / USD");
+      expect(await feed.description()).to.equal("HYPE / USD");
     });
 
     it("sets correct decimals", async function () {
-      expect(await hypeUsd.decimals()).to.equal(18);
+      expect(await feed.decimals()).to.equal(18);
     });
 
     it("sets correct oracle program ID", async function () {
-      expect(await hypeUsd.oracleProgramId()).to.equal(PROGRAM_ID);
+      expect(await feed.oracleProgramId()).to.equal(PROGRAM_ID);
+    });
+
+    it("reverts on zero sedaCore address", async function () {
+      const Factory = await ethers.getContractFactory("HypeUsdPriceFeed");
+      await expect(
+        Factory.deploy(ethers.ZeroAddress, PROGRAM_ID, STALENESS)
+      ).to.be.revertedWithCustomError(feed, "InvalidAddress");
+    });
+
+    it("reverts on zero program ID", async function () {
+      const Factory = await ethers.getContractFactory("HypeUsdPriceFeed");
+      await expect(
+        Factory.deploy(await mockCore.getAddress(), ethers.ZeroHash, STALENESS)
+      ).to.be.revertedWithCustomError(feed, "InvalidProgramId");
     });
   });
 
   describe("transmit", function () {
     it("posts request and stores request ID", async function () {
-      await hypeUsd.transmit();
-      const requestId = await hypeUsd.latestRequestId();
-      expect(requestId).to.not.equal(ethers.ZeroHash);
+      await feed.transmit();
+      expect(await feed.latestRequestId()).to.not.equal(ethers.ZeroHash);
     });
 
     it("emits RequestTransmitted event", async function () {
-      await expect(hypeUsd.transmit()).to.emit(hypeUsd, "RequestTransmitted");
+      await expect(feed.transmit()).to.emit(feed, "RequestTransmitted");
+    });
+
+    it("reverts when called by non-owner", async function () {
+      await expect(
+        feed.connect(other).transmit()
+      ).to.be.revertedWithCustomError(feed, "OwnableUnauthorizedAccount");
+    });
+
+    it("reverts when previous request is pending", async function () {
+      await feed.transmit();
+      await expect(feed.transmit()).to.be.revertedWithCustomError(
+        feed, "RequestPending"
+      );
+    });
+
+    it("allows transmit after fetchResult", async function () {
+      await feed.transmit();
+      const requestId = await feed.latestRequestId();
+      await mockCore.setResult(requestId, makeResult(requestId));
+      await feed.fetchResult();
+      // Should succeed now
+      await feed.transmit();
     });
   });
 
   describe("fetchResult", function () {
     it("reverts if no request transmitted", async function () {
-      await expect(hypeUsd.fetchResult()).to.be.revertedWithCustomError(
-        hypeUsd,
-        "RequestNotTransmitted"
+      await expect(feed.fetchResult()).to.be.revertedWithCustomError(
+        feed, "RequestNotTransmitted"
       );
     });
 
     it("updates price on valid result", async function () {
-      await hypeUsd.transmit();
-      const requestId = await hypeUsd.latestRequestId();
-
-      // Encode a price of 25.5 * 1e18 as big-endian u128
+      await feed.transmit();
+      const requestId = await feed.latestRequestId();
       const price = 25500000000000000000n;
-      const priceHex = price.toString(16).padStart(32, "0");
-      const resultBytes = "0x" + priceHex;
-
-      await mockCore.setResult(requestId, {
-        drId: requestId,
-        gasUsed: 0,
-        blockHeight: 1,
-        blockTimestamp: Math.floor(Date.now() / 1000),
-        consensus: true,
-        exitCode: 0,
-        version: "0.0.1",
-        result: resultBytes,
-        paybackAddress: "0x",
-        sedaPayload: "0x",
-      });
-
-      await hypeUsd.fetchResult();
-      expect(await hypeUsd.latestAnswer()).to.equal(price);
+      await mockCore.setResult(requestId, makeResult(requestId));
+      await feed.fetchResult();
+      expect(await feed.latestAnswer()).to.equal(price);
     });
 
     it("reverts on no consensus", async function () {
-      await hypeUsd.transmit();
-      const requestId = await hypeUsd.latestRequestId();
+      await feed.transmit();
+      const requestId = await feed.latestRequestId();
+      await mockCore.setResult(requestId, makeResult(requestId, { consensus: false }));
+      await expect(feed.fetchResult()).to.be.revertedWithCustomError(feed, "NoConsensus");
+    });
 
-      await mockCore.setResult(requestId, {
-        drId: requestId,
-        gasUsed: 0,
-        blockHeight: 1,
-        blockTimestamp: Math.floor(Date.now() / 1000),
-        consensus: false,
-        exitCode: 0,
-        version: "0.0.1",
-        result: "0x00000000000000000000000000000000",
-        paybackAddress: "0x",
-        sedaPayload: "0x",
-      });
+    it("reverts on non-zero exit code", async function () {
+      await feed.transmit();
+      const requestId = await feed.latestRequestId();
+      await mockCore.setResult(requestId, makeResult(requestId, { exitCode: 1 }));
+      await expect(feed.fetchResult()).to.be.revertedWithCustomError(feed, "ExecutionFailed");
+    });
 
-      await expect(hypeUsd.fetchResult()).to.be.revertedWithCustomError(
-        hypeUsd,
-        "NoConsensus"
-      );
+    it("reverts on result shorter than 16 bytes", async function () {
+      await feed.transmit();
+      const requestId = await feed.latestRequestId();
+      await mockCore.setResult(requestId, makeResult(requestId, { result: "0x0001" }));
+      await expect(feed.fetchResult()).to.be.revertedWithCustomError(feed, "InvalidResultLength");
+    });
+  });
+
+  describe("latestAnswer", function () {
+    it("reverts before first fetchResult", async function () {
+      await expect(feed.latestAnswer()).to.be.revertedWithCustomError(feed, "NotInitialized");
     });
   });
 
   describe("staleness", function () {
     it("reverts when price is stale", async function () {
-      await hypeUsd.transmit();
-      const requestId = await hypeUsd.latestRequestId();
+      await feed.transmit();
+      const requestId = await feed.latestRequestId();
+      await mockCore.setResult(requestId, makeResult(requestId, { blockTimestamp: 1 }));
+      await feed.fetchResult();
+      await expect(feed.latestAnswerSafe()).to.be.revertedWithCustomError(feed, "StalePrice");
+    });
 
-      // Set result with old timestamp
-      await mockCore.setResult(requestId, {
-        drId: requestId,
-        gasUsed: 0,
-        blockHeight: 1,
-        blockTimestamp: 1, // very old
-        consensus: true,
-        exitCode: 0,
-        version: "0.0.1",
-        result: "0x00000000000000000000000000000001",
-        paybackAddress: "0x",
-        sedaPayload: "0x",
-      });
-
-      await hypeUsd.fetchResult();
-      await expect(hypeUsd.latestAnswerSafe()).to.be.revertedWithCustomError(
-        hypeUsd,
-        "StalePrice"
-      );
+    it("reverts on latestAnswerSafe before first fetch", async function () {
+      await expect(feed.latestAnswerSafe()).to.be.revertedWithCustomError(feed, "NotInitialized");
     });
   });
 
   describe("admin", function () {
     it("owner can update oracle program ID", async function () {
       const newId = ethers.encodeBytes32String("new-program");
-      await expect(hypeUsd.setOracleProgramId(newId))
-        .to.emit(hypeUsd, "OracleProgramIdUpdated");
-      expect(await hypeUsd.oracleProgramId()).to.equal(newId);
+      await expect(feed.setOracleProgramId(newId))
+        .to.emit(feed, "OracleProgramIdUpdated");
+      expect(await feed.oracleProgramId()).to.equal(newId);
     });
 
     it("non-owner cannot update oracle program ID", async function () {
       const newId = ethers.encodeBytes32String("new-program");
       await expect(
-        hypeUsd.connect(other).setOracleProgramId(newId)
-      ).to.be.revertedWithCustomError(hypeUsd, "OwnableUnauthorizedAccount");
+        feed.connect(other).setOracleProgramId(newId)
+      ).to.be.revertedWithCustomError(feed, "OwnableUnauthorizedAccount");
     });
+
+    it("rejects zero program ID on update", async function () {
+      await expect(
+        feed.setOracleProgramId(ethers.ZeroHash)
+      ).to.be.revertedWithCustomError(feed, "InvalidProgramId");
+    });
+  });
+});
+
+describe("MantraUsdPriceFeed", function () {
+  let mockCore: any;
+  let feed: any;
+
+  beforeEach(async function () {
+    const MockCore = await ethers.getContractFactory("MockSedaCore");
+    mockCore = await MockCore.deploy();
+    const Factory = await ethers.getContractFactory("MantraUsdPriceFeed");
+    feed = await Factory.deploy(await mockCore.getAddress(), PROGRAM_ID, STALENESS);
+  });
+
+  it("sets correct description", async function () {
+    expect(await feed.description()).to.equal("MANTRA / USD");
+  });
+
+  it("transmit and fetchResult work end-to-end", async function () {
+    await feed.transmit();
+    const requestId = await feed.latestRequestId();
+    await mockCore.setResult(requestId, makeResult(requestId));
+    await feed.fetchResult();
+    expect(await feed.latestAnswer()).to.equal(25500000000000000000n);
+  });
+});
+
+describe("HypeMantraPriceFeed", function () {
+  let mockCore: any;
+  let feed: any;
+
+  beforeEach(async function () {
+    const MockCore = await ethers.getContractFactory("MockSedaCore");
+    mockCore = await MockCore.deploy();
+    const Factory = await ethers.getContractFactory("HypeMantraPriceFeed");
+    feed = await Factory.deploy(await mockCore.getAddress(), PROGRAM_ID, STALENESS);
+  });
+
+  it("sets correct description", async function () {
+    expect(await feed.description()).to.equal("HYPE / MANTRA");
+  });
+
+  it("transmit and fetchResult work end-to-end", async function () {
+    await feed.transmit();
+    const requestId = await feed.latestRequestId();
+    await mockCore.setResult(requestId, makeResult(requestId));
+    await feed.fetchResult();
+    expect(await feed.latestAnswer()).to.equal(25500000000000000000n);
   });
 });

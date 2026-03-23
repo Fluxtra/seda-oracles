@@ -13,5 +13,5 @@ task("latest", "Read the latest price from a price feed")
     console.log(`Feed: ${description}`);
     console.log(`Price: ${price} (${decimals} decimals)`);
     console.log(`Timestamp: ${timestamp}`);
-    console.log(`Human-readable: ${Number(price) / 1e18}`);
+    console.log(`Human-readable: ${hre.ethers.formatUnits(price, 18)}`);
   });

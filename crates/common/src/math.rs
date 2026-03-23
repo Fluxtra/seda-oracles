@@ -1,24 +1,34 @@
 /// Compute the median of a slice of f64 values.
-/// Panics if the slice is empty.
-pub fn median(values: &[f64]) -> f64 {
+/// Returns `None` if the slice is empty.
+pub fn median(values: &[f64]) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
     let mut sorted = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted.sort_by(|a, b| a.total_cmp(b));
     let len = sorted.len();
     if len % 2 == 0 {
-        (sorted[len / 2 - 1] + sorted[len / 2]) / 2.0
+        Some((sorted[len / 2 - 1] + sorted[len / 2]) / 2.0)
     } else {
-        sorted[len / 2]
+        Some(sorted[len / 2])
     }
 }
 
 /// Compute the median of a vector of u128 values.
-/// Panics if the vector is empty.
-pub fn median_u128(values: &mut Vec<u128>) -> u128 {
+/// Returns `None` if the vector is empty.
+/// Uses overflow-safe averaging for even-length vectors.
+pub fn median_u128(values: &mut Vec<u128>) -> Option<u128> {
+    if values.is_empty() {
+        return None;
+    }
     values.sort();
     let len = values.len();
     if len % 2 == 0 {
-        (values[len / 2 - 1] + values[len / 2]) / 2
+        let a = values[len / 2 - 1];
+        let b = values[len / 2];
+        // Overflow-safe average: a/2 + b/2 + (a%2 + b%2)/2
+        Some(a / 2 + b / 2 + (a % 2 + b % 2) / 2)
     } else {
-        values[len / 2]
+        Some(values[len / 2])
     }
 }

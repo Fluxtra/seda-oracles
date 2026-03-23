@@ -1,6 +1,7 @@
 use anyhow::Result;
-use seda_sdk_rs::{log, elog, Process};
+use seda_sdk_rs::{elog, log, Process};
 
+#[allow(unreachable_code)]
 pub fn execution_phase() -> Result<()> {
     // ---------- HYPE/USD sources ----------
     let mut hype_prices: Vec<f64> = Vec::new();
@@ -60,20 +61,35 @@ pub fn execution_phase() -> Result<()> {
     if hype_prices.len() < 2 {
         elog!("Only {} HYPE/USD sources, need at least 2", hype_prices.len());
         Process::error(b"Less than 2 HYPE/USD sources");
+        return Ok(());
     }
 
     if mantra_prices.len() < 2 {
         elog!("Only {} MANTRA/USD sources, need at least 2", mantra_prices.len());
         Process::error(b"Less than 2 MANTRA/USD sources");
+        return Ok(());
     }
 
     // ---------- Cross-rate ----------
-    let hype_median = common::math::median(&hype_prices);
-    let mantra_median = common::math::median(&mantra_prices);
+    let hype_median = match common::math::median(&hype_prices) {
+        Some(m) => m,
+        None => {
+            Process::error(b"No valid HYPE prices");
+            return Ok(());
+        }
+    };
+    let mantra_median = match common::math::median(&mantra_prices) {
+        Some(m) => m,
+        None => {
+            Process::error(b"No valid MANTRA prices");
+            return Ok(());
+        }
+    };
 
     if mantra_median <= 0.0 {
         elog!("MANTRA/USD median is non-positive: {}", mantra_median);
         Process::error(b"MANTRA/USD median non-positive");
+        return Ok(());
     }
 
     let hype_mantra = hype_median / mantra_median;
@@ -84,4 +100,5 @@ pub fn execution_phase() -> Result<()> {
     );
 
     Process::success(&scaled.to_le_bytes());
+    return Ok(());
 }

@@ -11,3 +11,4 @@ resolver = "2"
 inherits = "release"
 lto = "fat"
 opt-level = "z"
+codegen-units = 1

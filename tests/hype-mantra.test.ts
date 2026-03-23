@@ -5,6 +5,7 @@ import {
   testOracleProgramTally,
 } from "@seda-protocol/dev-tools";
 import { BigNumber } from "bignumber.js";
+import { encodeU128LE, decodeBE, decodeLE, scalePrice } from "./helpers";
 
 const WASM_PATH = "target/wasm32-wasip1/release-wasm/hype-mantra.wasm";
 
@@ -13,23 +14,6 @@ const fetchMock = mock();
 afterEach(() => {
   fetchMock.mockRestore();
 });
-
-function encodeU128LE(value: bigint): Buffer {
-  const buf = Buffer.alloc(16);
-  for (let i = 0; i < 16; i++) {
-    buf[i] = Number((value >> BigInt(i * 8)) & 0xffn);
-  }
-  return buf;
-}
-
-function decodeBE(bytes: Uint8Array): BigNumber {
-  const hex = Buffer.from(bytes).toString("hex");
-  return BigNumber(`0x${hex}`);
-}
-
-function scalePrice(price: number): bigint {
-  return BigInt(Math.floor(price * 1e18));
-}
 
 // Mock all 6 API sources
 function mockAllSources(hypePrice: string, mantraPrice: string) {
@@ -88,8 +72,7 @@ describe("HYPE/MANTRA Oracle - Execution Phase", () => {
 
     expect(vmResult.exitCode).toBe(0);
 
-    const hex = Buffer.from(vmResult.result.toReversed()).toString("hex");
-    const result = BigNumber(`0x${hex}`);
+    const result = decodeLE(vmResult.result);
 
     // Cross-rate: 25.50 / 0.85 = 30.0
     const expected = BigNumber("30e18");
@@ -98,7 +81,6 @@ describe("HYPE/MANTRA Oracle - Execution Phase", () => {
   });
 
   it("should succeed with partial source failures (2/3 each)", async () => {
-    let callCount = 0;
     fetchMock.mockImplementation((url: URL) => {
       const host = url.host;
       const path = url.pathname + url.search;

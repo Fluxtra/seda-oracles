@@ -5,6 +5,7 @@ import {
   testOracleProgramTally,
 } from "@seda-protocol/dev-tools";
 import { BigNumber } from "bignumber.js";
+import { encodeU128LE, decodeBE, decodeLE, scalePrice } from "./helpers";
 
 const WASM_PATH = "target/wasm32-wasip1/release-wasm/mantra-usd.wasm";
 
@@ -13,23 +14,6 @@ const fetchMock = mock();
 afterEach(() => {
   fetchMock.mockRestore();
 });
-
-function encodeU128LE(value: bigint): Buffer {
-  const buf = Buffer.alloc(16);
-  for (let i = 0; i < 16; i++) {
-    buf[i] = Number((value >> BigInt(i * 8)) & 0xffn);
-  }
-  return buf;
-}
-
-function decodeBE(bytes: Uint8Array): BigNumber {
-  const hex = Buffer.from(bytes).toString("hex");
-  return BigNumber(`0x${hex}`);
-}
-
-function scalePrice(price: number): bigint {
-  return BigInt(Math.floor(price * 1e18));
-}
 
 describe("MANTRA/USD Oracle - Execution Phase", () => {
   it("should return median of 3 sources", async () => {
@@ -62,8 +46,7 @@ describe("MANTRA/USD Oracle - Execution Phase", () => {
 
     expect(vmResult.exitCode).toBe(0);
 
-    const hex = Buffer.from(vmResult.result.toReversed()).toString("hex");
-    const result = BigNumber(`0x${hex}`);
+    const result = decodeLE(vmResult.result);
 
     // Median of 0.8480, 0.8500, 0.8520 = 0.8500
     const expected = BigNumber("0.85e18");

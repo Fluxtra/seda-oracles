@@ -1,41 +1,50 @@
 use anyhow::Result;
-use seda_sdk_rs::{log, Process};
+use seda_sdk_rs::{elog, log, Process};
 
+#[allow(unreachable_code)]
 pub fn execution_phase() -> Result<()> {
     let mut prices: Vec<f64> = Vec::new();
 
     // Source 1: Binance
-    if let Some(price) = common::fetch::fetch_price(
+    if let Some(p) = common::fetch::fetch_price(
         "https://api.binance.com/api/v3/ticker/price?symbol=MANTRAUSDT",
         &["price"],
     ) {
-        prices.push(price);
+        prices.push(p);
     }
 
     // Source 2: Gate.io
-    if let Some(price) = common::fetch::fetch_price(
+    if let Some(p) = common::fetch::fetch_price(
         "https://api.gateio.ws/api/v4/spot/tickers?currency_pair=MANTRA_USDT",
         &["0", "last"],
     ) {
-        prices.push(price);
+        prices.push(p);
     }
 
     // Source 3: Bybit
-    if let Some(price) = common::fetch::fetch_price(
+    if let Some(p) = common::fetch::fetch_price(
         "https://api.bybit.com/v5/market/tickers?category=spot&symbol=MANTRAUSDT",
         &["result", "list", "0", "lastPrice"],
     ) {
-        prices.push(price);
+        prices.push(p);
     }
 
     if prices.len() < 2 {
+        elog!("Only {} MANTRA/USD sources, need at least 2", prices.len());
         Process::error(b"Less than 2 sources");
+        return Ok(());
     }
 
-    let median = common::math::median(&prices);
+    let median = match common::math::median(&prices) {
+        Some(m) => m,
+        None => {
+            Process::error(b"No valid prices");
+            return Ok(());
+        }
+    };
     let scaled = common::parse::scale_price(median);
-
     log!("MANTRA/USD median: {}, scaled: {}", median, scaled);
 
     Process::success(&scaled.to_le_bytes());
+    return Ok(());
 }

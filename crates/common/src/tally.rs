@@ -35,13 +35,14 @@ pub fn standard_tally() -> Result<()> {
         prices.push(price);
     }
 
-    if prices.is_empty() {
-        Process::error(b"No valid reveals to tally");
+    match median_u128(&mut prices) {
+        Some(result) => {
+            log!("Tally median result: {}", result);
+            // Big-endian for EVM decoding: uint128(bytes16(result.result))
+            Process::success(&result.to_be_bytes());
+        }
+        None => {
+            Process::error(b"No valid reveals to tally");
+        }
     }
-
-    let result = median_u128(&mut prices);
-    log!("Tally median result: {}", result);
-
-    // Big-endian for EVM decoding: uint128(bytes16(result.result))
-    Process::success(&result.to_be_bytes());
 }
