@@ -5,6 +5,7 @@ import {
   testOracleProgramTally,
 } from "@seda-protocol/dev-tools";
 import { BigNumber } from "bignumber.js";
+import { encodeU128LE, decodeBE, decodeLE, scalePrice } from "./helpers";
 
 const WASM_PATH = "target/wasm32-wasip1/release-wasm/hype-usd.wasm";
 
@@ -13,26 +14,6 @@ const fetchMock = mock();
 afterEach(() => {
   fetchMock.mockRestore();
 });
-
-// Helper: encode a u128 as 16-byte little-endian Buffer
-function encodeU128LE(value: bigint): Buffer {
-  const buf = Buffer.alloc(16);
-  for (let i = 0; i < 16; i++) {
-    buf[i] = Number((value >> BigInt(i * 8)) & 0xffn);
-  }
-  return buf;
-}
-
-// Helper: decode big-endian u128 from Uint8Array
-function decodeBE(bytes: Uint8Array): BigNumber {
-  const hex = Buffer.from(bytes).toString("hex");
-  return BigNumber(`0x${hex}`);
-}
-
-// Helper: scale a price to 1e18 u128
-function scalePrice(price: number): bigint {
-  return BigInt(Math.floor(price * 1e18));
-}
 
 describe("HYPE/USD Oracle - Execution Phase", () => {
   it("should return median of 3 sources", async () => {
@@ -65,9 +46,8 @@ describe("HYPE/USD Oracle - Execution Phase", () => {
 
     expect(vmResult.exitCode).toBe(0);
 
-    // Result is little-endian u128 — reverse for hex decoding
-    const hex = Buffer.from(vmResult.result.toReversed()).toString("hex");
-    const result = BigNumber(`0x${hex}`);
+    // Result is little-endian u128
+    const result = decodeLE(vmResult.result);
 
     // Median of 25.40, 25.50, 25.60 = 25.50
     const expected = BigNumber("25.5e18");
@@ -105,8 +85,7 @@ describe("HYPE/USD Oracle - Execution Phase", () => {
 
     expect(vmResult.exitCode).toBe(0);
 
-    const hex = Buffer.from(vmResult.result.toReversed()).toString("hex");
-    const result = BigNumber(`0x${hex}`);
+    const result = decodeLE(vmResult.result);
 
     // Median of 25.40, 25.50 = 25.45
     const expected = BigNumber("25.45e18");

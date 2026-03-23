@@ -1,5 +1,5 @@
 use anyhow::Result;
-use seda_sdk_rs::{log, elog, Process};
+use seda_sdk_rs::{elog, log, Process};
 
 pub fn execution_phase() -> Result<()> {
     // ---------- HYPE/USD sources ----------
@@ -68,8 +68,9 @@ pub fn execution_phase() -> Result<()> {
     }
 
     // ---------- Cross-rate ----------
-    let hype_median = common::math::median(&hype_prices);
-    let mantra_median = common::math::median(&mantra_prices);
+    // Safe to unwrap: length checks above guarantee non-empty slices
+    let hype_median = common::math::median(&hype_prices).unwrap();
+    let mantra_median = common::math::median(&mantra_prices).unwrap();
 
     if mantra_median <= 0.0 {
         elog!("MANTRA/USD median is non-positive: {}", mantra_median);
@@ -77,7 +78,13 @@ pub fn execution_phase() -> Result<()> {
     }
 
     let hype_mantra = hype_median / mantra_median;
-    let scaled = common::parse::scale_price(hype_mantra);
+    let scaled = match common::parse::scale_price(hype_mantra) {
+        Some(s) => s,
+        None => {
+            elog!("Failed to scale HYPE/MANTRA cross-rate: {}", hype_mantra);
+            Process::error(b"Invalid cross-rate price");
+        }
+    };
     log!(
         "HYPE/MANTRA cross-rate: {} (HYPE/USD {} / MANTRA/USD {}), scaled: {}",
         hype_mantra, hype_median, mantra_median, scaled

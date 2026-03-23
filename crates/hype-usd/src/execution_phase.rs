@@ -1,5 +1,5 @@
 use anyhow::Result;
-use seda_sdk_rs::{log, Process};
+use seda_sdk_rs::{elog, log, Process};
 
 pub fn execution_phase() -> Result<()> {
     let mut prices: Vec<f64> = Vec::new();
@@ -29,11 +29,19 @@ pub fn execution_phase() -> Result<()> {
     }
 
     if prices.len() < 2 {
+        elog!("Only {} HYPE/USD sources, need at least 2", prices.len());
         Process::error(b"Less than 2 sources");
     }
 
-    let median = common::math::median(&prices);
-    let scaled = common::parse::scale_price(median);
+    // Safe to unwrap: prices.len() >= 2 guarantees non-empty slice
+    let median = common::math::median(&prices).unwrap();
+    let scaled = match common::parse::scale_price(median) {
+        Some(s) => s,
+        None => {
+            elog!("Failed to scale HYPE/USD median: {}", median);
+            Process::error(b"Invalid median price");
+        }
+    };
     log!("HYPE/USD median: {}, scaled: {}", median, scaled);
 
     Process::success(&scaled.to_le_bytes());
